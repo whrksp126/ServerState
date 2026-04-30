@@ -60,8 +60,11 @@ ssh -i ~/.ssh/ghmate_server -p 222 ghmate@ghmate.iptime.org \
 ### 5) nginx 라우팅 추가
 ```bash
 ssh -i ~/.ssh/ghmate_server -p 222 ghmate@ghmate.iptime.org \
-  'cp /srv/projects/serverstate/deploy/serverstate.conf /srv/nginx-proxy/conf.d/ && docker exec nginx_proxy nginx -t && docker exec nginx_proxy nginx -s reload'
+  'cp /srv/projects/serverstate/deploy/serverstate.conf /srv/nginx-proxy/conf.d/ && docker exec nginx_proxy nginx -t && docker restart nginx_proxy'
 ```
+> ⚠️ `nginx -s reload`(graceful) 대신 **`docker restart nginx_proxy`** 사용. graceful reload는 새 server 블록 SSL 매칭이 active connection에서 안 잡혀 502가 발생할 수 있음 (실측).
+>
+> ⚠️ Cloudflare가 Proxied 모드에서 origin에 HTTPS(443)로 연결하므로, conf에 `listen 443 ssl;` + `ssl_certificate /etc/nginx/certs/cloudflare_chain.crt;` + `ssl_certificate_key /etc/nginx/certs/cloudflare.key;`가 반드시 있어야 함. 80만 listen하면 default_server에 빨려들어가 502.
 
 ### 6) Cloudflare DNS 등록 (사용자 직접)
 - Type: `CNAME`
