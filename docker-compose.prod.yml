@@ -1,0 +1,40 @@
+# 홈서버(ghmate) 운영 override.
+# - 가이드 GHMATE_SERVER_GUIDE.md 패턴: 호스트 포트 노출 안 함, nginx_proxy 네트워크 join
+# - 사용: docker compose -f docker-compose.yml -f docker-compose.prod.yml --profile linux --env-file .env.dev up -d
+# - scripts/up.sh dev 가 위 명령을 자동 실행
+
+services:
+  prometheus:
+    container_name: serverstate_prometheus_prod
+    ports: !reset []
+    expose:
+      - "9090"
+
+  grafana:
+    container_name: serverstate_grafana_prod
+    ports: !reset []
+    expose:
+      - "3000"
+    networks:
+      - monitor-net
+      - nginx_proxy
+
+  node-exporter:
+    container_name: serverstate_node_exporter_prod
+    # host network 모드 그대로 (9100). 외부 노출 아님(공유기에 9100 포워딩 안 되어있어서 안전)
+
+  cadvisor:
+    container_name: serverstate_cadvisor_prod
+    ports: !reset []
+    expose:
+      - "8080"
+
+  alertmanager:
+    container_name: serverstate_alertmanager_prod
+    ports: !reset []
+    expose:
+      - "9093"
+
+networks:
+  nginx_proxy:
+    external: true

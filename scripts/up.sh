@@ -13,13 +13,15 @@ if [[ ! -f "${ENV_FILE}" ]]; then
   exit 1
 fi
 
+COMPOSE_FILES="-f docker-compose.yml"
 PROFILE_FLAG=""
 if [[ "${ENV_NAME}" != "local" ]]; then
-  # 홈서버 등 Linux 환경에서는 node-exporter 활성화
+  # 홈서버: prod override(nginx_proxy 네트워크, 컨테이너 네이밍, 호스트 포트 제거) + linux 프로필
+  COMPOSE_FILES="${COMPOSE_FILES} -f docker-compose.prod.yml"
   PROFILE_FLAG="--profile linux"
 fi
 
 echo "[up] using ${ENV_FILE} ${PROFILE_FLAG}"
-docker compose --env-file "${ENV_FILE}" ${PROFILE_FLAG} config >/dev/null
-docker compose --env-file "${ENV_FILE}" ${PROFILE_FLAG} up -d
-docker compose --env-file "${ENV_FILE}" ${PROFILE_FLAG} ps
+docker compose ${COMPOSE_FILES} --env-file "${ENV_FILE}" ${PROFILE_FLAG} config >/dev/null
+docker compose ${COMPOSE_FILES} --env-file "${ENV_FILE}" ${PROFILE_FLAG} up -d
+docker compose ${COMPOSE_FILES} --env-file "${ENV_FILE}" ${PROFILE_FLAG} ps

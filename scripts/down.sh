@@ -13,10 +13,12 @@ if [[ ! -f "${ENV_FILE}" ]]; then
   exit 0
 fi
 
+COMPOSE_FILES="-f docker-compose.yml"
 PROFILE_FLAG=""
 if [[ "${ENV_NAME}" != "local" ]]; then
+  COMPOSE_FILES="${COMPOSE_FILES} -f docker-compose.prod.yml"
   PROFILE_FLAG="--profile linux"
 fi
 
 echo "[down] using ${ENV_FILE} ${PROFILE_FLAG}"
-docker compose --env-file "${ENV_FILE}" ${PROFILE_FLAG} down
+docker compose ${COMPOSE_FILES} --env-file "${ENV_FILE}" ${PROFILE_FLAG} down

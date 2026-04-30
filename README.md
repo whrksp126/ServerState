@@ -45,16 +45,14 @@ ALERTMANAGER_HOST_PORT=9093
 CADVISOR_HOST_PORT=8080
 ```
 
-### `.env.dev` 예시 (홈서버 운영용)
+### `.env.dev` 예시 (홈서버 운영용 — ghmate 서버 패턴)
+홈서버는 `docker-compose.prod.yml` override가 적용되어 **모든 호스트 포트가 제거**됨.
+외부 노출은 글로벌 `nginx_proxy`(포트 80)만 담당. 따라서 `*_HOST_PORT` 변수는 사용되지 않음.
 ```env
 GRAFANA_ADMIN_USER=admin
 GRAFANA_ADMIN_PW=<강력한_비밀번호>
-GRAFANA_HOST_PORT=3000           # 다른 컨테이너와 충돌 시 변경 (예: 3300)
-GRAFANA_ROOT_URL=https://serverstate.<도메인>
-PROMETHEUS_HOST_PORT=9090
+GRAFANA_ROOT_URL=https://serverstate.ghmate.com
 PROMETHEUS_RETENTION=15d
-ALERTMANAGER_HOST_PORT=9093
-CADVISOR_HOST_PORT=8080          # 가장 흔하게 충돌. 필요 시 18080 등
 ```
 
 ## 실행
@@ -115,19 +113,22 @@ ls /sys/class/hwmon/
 충돌 시 `.env.dev`에서 해당 포트 변수 변경 후 reverse proxy upstream도 같이 갱신.
 자세한 절차는 `.claude/skills/deploy-to-homeserver.md` 참조.
 
-## 외부 도메인 연결
+## 외부 도메인 연결 (ghmate 서버 기준)
 
-기존 다른 서비스(`heyvoca-back` 등)와 동일 패턴:
+1. Cloudflare DNS에 `serverstate.ghmate.com` CNAME → `ghmate.iptime.org` (Proxy ON)
+2. `deploy/serverstate.conf`를 `/srv/nginx-proxy/conf.d/serverstate.conf`로 복사
+3. `docker exec nginx_proxy nginx -s reload`
+4. `https://serverstate.ghmate.com` 접속 → Grafana 로그인
 
-1. Cloudflare DNS에 `serverstate` CNAME → `ghmate.iptime.org` (Proxy ON)
-2. 홈서버 reverse proxy(nginx/traefik/npm 등)에 `serverstate.<도메인>` → `127.0.0.1:${GRAFANA_HOST_PORT}` 라우팅 추가
-3. `https://serverstate.<도메인>` 접속 → Grafana 로그인
+흐름: Cloudflare(HTTPS) → 공유기 → `nginx_proxy:80` → `serverstate_grafana_prod:3000`
 
 ## 폴더 구조
 
 ```
 ServerState/
-├── docker-compose.yml
+├── docker-compose.yml          # 베이스 (로컬 맥북용 호스트 포트 노출)
+├── docker-compose.prod.yml     # 홈서버 override (nginx_proxy join, 포트 제거)
+├── deploy/serverstate.conf     # /srv/nginx-proxy/conf.d/ 에 복사할 nginx 설정
 ├── prometheus/
 │   ├── prometheus.yml          # scrape jobs
 │   └── rules/alerts.yml        # 알림 룰
@@ -135,7 +136,7 @@ ServerState/
 ├── grafana/provisioning/
 │   ├── datasources/prometheus.yml
 │   └── dashboards/             # JSON 대시보드 자동 등록
-├── scripts/up.sh, down.sh
+├── scripts/up.sh, down.sh      # 인자 local | dev (dev면 prod override 자동 적용)
 ├── .claude/                    # Claude Code 하네스 (skills, hooks)
 └── README.md, CLAUDE.md
 ```
@@ -143,7 +144,7 @@ ServerState/
 ## 향후 작업
 
 - [ ] 알림 채널(이메일 SMTP / Discord / Slack) 결정 후 Alertmanager receiver 활성화
-- [ ] 홈서버 GPU 종류 확인 후 GPU exporter 추가 (NVIDIA/AMD)
+- [ ] AMD GPU exporter 추가 (홈서버 Ryzen 내장 Vega 그래픽 — `amdgpu_exporter` 또는 hwmon 기반)
 - [ ] Cloudflare Access로 Grafana 이메일 인증 게이트
 - [ ] Loki + Promtail 로그 수집 추가
 - [ ] `prometheus_data`, `grafana_data` 정기 백업

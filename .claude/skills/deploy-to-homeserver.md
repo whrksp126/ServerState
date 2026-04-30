@@ -1,122 +1,97 @@
 ---
 name: deploy-to-homeserver
-description: Deploy ServerState to the home server — pre-flight checks, port collision handling, reverse proxy wiring
+description: Deploy ServerState to ghmate home server following the GHMATE_SERVER_GUIDE pattern
 ---
 
-# 홈서버 배포 절차
+# 홈서버(ghmate) 배포 절차
 
 ## 언제 사용하는가
 사용자가 "홈서버에 배포", "서버에 올려줘" 등.
 
-## 사전 점검 (SSH 접속 후)
+## 서버 컨벤션 (반드시 따른다)
+- 모든 동적 프로젝트: `/srv/projects/<name>/`
+- 글로벌 nginx: `/srv/nginx-proxy/` (컨테이너 `nginx_proxy`, 포트 80 단일 진입점)
+- 도메인 라우팅: `/srv/nginx-proxy/conf.d/<project>.conf` 추가 후 nginx reload
+- **호스트 포트 노출 금지** (글로벌 nginx가 80 담당)
+- 컨테이너 네이밍: `<project>_<service>_<env>` (예: `serverstate_grafana_prod`)
+- 외부 통신 컨테이너만 `nginx_proxy` 네트워크에 join (`external: true`)
+- 자세한 건 `~/other/project/GHMATE_SERVER_GUIDE.md` 참조
+
+## SSH 접속
 
 ```bash
-# (a) 호스트 포트 충돌 확인
-sudo ss -tlnp | grep -E ':(3000|9090|9093|9100|8080)\b' || echo "충돌 없음"
-
-# (b) 현재 컨테이너 포트 매핑
-docker ps --format 'table {{.Names}}\t{{.Ports}}'
-
-# (c) reverse proxy 식별
-docker ps --format '{{.Names}}: {{.Image}}' | grep -iE 'nginx|traefik|caddy|proxy'
-
-# (d) reverse proxy 설정 위치 (식별된 컨테이너명으로)
-docker inspect <proxy_name> --format '{{range .Mounts}}{{.Source}} -> {{.Destination}}{{"\n"}}{{end}}'
-
-# (e) GPU 종류
-lspci | grep -iE 'vga|3d|display'
-
-# (f) hwmon 가용성
-ls /sys/class/hwmon/ 2>/dev/null && echo "OK" || echo "센서 없음"
+ssh -i ~/.ssh/ghmate_server -p 222 ghmate@ghmate.iptime.org
 ```
 
-결과를 사용자에게 공유하고 충돌 항목 결정.
+## 배포 절차
 
-## 충돌 시 대응
-
-| 포트 | 대응 |
-|---|---|
-| 8080 (cAdvisor) | `.env.dev`에서 `CADVISOR_HOST_PORT=18080` 등 |
-| 3000 (Grafana) | `GRAFANA_HOST_PORT=3300` 등 + reverse proxy upstream도 갱신 |
-| 9090/9093 | 변수 변경 |
-| 9100 (node-exporter) | host network라 변경 불가. 충돌 측 점검 필요 |
-
-## 배포 순서
-
+### 1) 사전 점검 (충돌 검사)
 ```bash
-# 1) 코드 받기 (최초)
-cd ~/services && git clone https://github.com/<user>/ServerState.git
-cd ServerState
+ssh -i ~/.ssh/ghmate_server -p 222 ghmate@ghmate.iptime.org \
+  'sudo ss -tlnp | grep -E ":(3000|9090|9093|9100|8080)\b" || echo "충돌 없음"; docker ps --format "table {{.Names}}\t{{.Ports}}"'
+```
 
-# 2) .env.dev 작성 (사전 점검 결과 반영)
-cat > .env.dev <<'EOF'
+### 2) 코드 받기 (최초 한 번)
+```bash
+ssh -i ~/.ssh/ghmate_server -p 222 ghmate@ghmate.iptime.org \
+  'mkdir -p /srv/projects/serverstate && cd /srv/projects/serverstate && git clone https://github.com/whrksp126/ServerState.git .'
+```
+
+### 3) `.env.dev` 작성 (서버에서)
+```bash
+ssh -i ~/.ssh/ghmate_server -p 222 ghmate@ghmate.iptime.org \
+  'cat > /srv/projects/serverstate/.env.dev <<EOF
 GRAFANA_ADMIN_USER=admin
 GRAFANA_ADMIN_PW=<강력한_비밀번호>
-GRAFANA_HOST_PORT=3000
-GRAFANA_ROOT_URL=https://serverstate.<도메인>
-PROMETHEUS_HOST_PORT=9090
+GRAFANA_ROOT_URL=https://serverstate.ghmate.com
 PROMETHEUS_RETENTION=15d
-ALERTMANAGER_HOST_PORT=9093
-CADVISOR_HOST_PORT=8080
 EOF
-chmod 600 .env.dev
-
-# 3) compose 검증 + 기동
-docker compose --env-file .env.dev config -q
-bash scripts/up.sh dev
-
-# 4) 헬스체크
-docker compose --env-file .env.dev ps
-curl -fsSL http://localhost:${GRAFANA_HOST_PORT:-3000}/api/health
-curl -fsSL http://localhost:${PROMETHEUS_HOST_PORT:-9090}/-/healthy
+chmod 600 /srv/projects/serverstate/.env.dev'
 ```
 
-## reverse proxy 라우팅 (식별된 종류에 맞춰)
-
-### nginx (호스트 또는 컨테이너)
-```nginx
-server {
-    listen 80;
-    server_name serverstate.<도메인>;
-    location / {
-        proxy_pass http://127.0.0.1:3000;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-}
+### 4) 기동
+```bash
+ssh -i ~/.ssh/ghmate_server -p 222 ghmate@ghmate.iptime.org \
+  'cd /srv/projects/serverstate && bash scripts/up.sh dev'
 ```
-적용: `nginx -t && nginx -s reload` (호스트면) 또는 컨테이너 재시작
+> `scripts/up.sh dev`는 `docker-compose.yml + docker-compose.prod.yml` + `--profile linux` 자동 적용
+> = node-exporter 활성화, 호스트 포트 제거, nginx_proxy 네트워크 join, 컨테이너 네이밍 `_prod`
 
-### nginx-proxy-manager
-GUI → "Proxy Hosts" → "Add Proxy Host"
-- Domain: `serverstate.<도메인>`
-- Forward Hostname: `host.docker.internal` 또는 호스트 IP
-- Forward Port: `${GRAFANA_HOST_PORT}`
-- Block Common Exploits: ON
+### 5) nginx 라우팅 추가
+```bash
+ssh -i ~/.ssh/ghmate_server -p 222 ghmate@ghmate.iptime.org \
+  'cp /srv/projects/serverstate/deploy/serverstate.conf /srv/nginx-proxy/conf.d/ && docker exec nginx_proxy nginx -t && docker exec nginx_proxy nginx -s reload'
+```
 
-### Traefik (라벨)
-ServerState의 `grafana` 서비스에 라벨 추가 후 Traefik 네트워크에 join.
-필요 시 별도 PR로 진행.
-
-## Cloudflare DNS
-
-기존 패턴 그대로:
+### 6) Cloudflare DNS 등록 (사용자 직접)
 - Type: `CNAME`
 - Name: `serverstate`
 - Target: `ghmate.iptime.org`
-- Proxy status: Proxied
+- Proxy: ON (Proxied)
 
-## 검증
-
-`https://serverstate.<도메인>` 접속 → Grafana 로그인 화면 → 환경변수의 admin/PW로 진입 → 대시보드 노출 확인.
-
-## 업데이트(이후)
-
+### 7) 검증
 ```bash
-cd ~/services/ServerState
-git pull
-docker compose --env-file .env.dev pull
-bash scripts/up.sh dev
+# 컨테이너 내부 헬스체크
+ssh -i ~/.ssh/ghmate_server -p 222 ghmate@ghmate.iptime.org \
+  'docker exec serverstate_grafana_prod wget -qO- http://localhost:3000/api/health'
+
+# nginx 경유 (ghmate.com 호스트 헤더로 시뮬레이션)
+ssh -i ~/.ssh/ghmate_server -p 222 ghmate@ghmate.iptime.org \
+  'curl -fsSL -H "Host: serverstate.ghmate.com" http://localhost/api/health'
+
+# 외부 도메인 (DNS 전파 후)
+curl -fsSL https://serverstate.ghmate.com/api/health
 ```
+
+## 업데이트 (이후 변경 사항 반영)
+```bash
+ssh -i ~/.ssh/ghmate_server -p 222 ghmate@ghmate.iptime.org \
+  'cd /srv/projects/serverstate && git pull && bash scripts/up.sh dev'
+```
+
+## 주의
+
+- **`.env.dev`는 서버에서 직접 작성**하고 git에 커밋하지 않는다 (`.gitignore`에 포함)
+- Grafana 비밀번호는 **첫 로그인 후 반드시 변경** (또는 `.env.dev`에 강력한 값으로 설정)
+- nginx conf 변경 후 `docker exec nginx_proxy nginx -t`로 문법 검사 후 reload
+- nginx_proxy 네트워크는 `external: true`로 참조만 함 (생성/삭제 금지)
