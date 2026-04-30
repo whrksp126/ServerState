@@ -1,100 +1,78 @@
 ---
 name: deploy-to-homeserver
-description: Deploy ServerState to ghmate home server following the GHMATE_SERVER_GUIDE pattern
+description: ServerState를 ghmate 홈서버에 배포 — 일반적으로 scripts/deploy.sh 한 줄이면 끝
 ---
 
-# 홈서버(ghmate) 배포 절차
+# 홈서버(ghmate) 배포
 
 ## 언제 사용하는가
-사용자가 "홈서버에 배포", "서버에 올려줘" 등.
+사용자가 "배포", "서버에 올려줘", "푸시 해줘" 등.
 
-## 서버 컨벤션 (반드시 따른다)
-- 모든 동적 프로젝트: `/srv/projects/<name>/`
-- 글로벌 nginx: `/srv/nginx-proxy/` (컨테이너 `nginx_proxy`, 포트 80 단일 진입점)
-- 도메인 라우팅: `/srv/nginx-proxy/conf.d/<project>.conf` 추가 후 nginx reload
-- **호스트 포트 노출 금지** (글로벌 nginx가 80 담당)
-- 컨테이너 네이밍: `<project>_<service>_<env>` (예: `serverstate_grafana_prod`)
-- 외부 통신 컨테이너만 `nginx_proxy` 네트워크에 join (`external: true`)
-- 자세한 건 `~/other/project/GHMATE_SERVER_GUIDE.md` 참조
-
-## SSH 접속
+## 90%의 경우 — 한 줄
 
 ```bash
+bash scripts/deploy.sh
+```
+
+또는 슬래시 커맨드 `/deploy`. 다음을 자동으로 한다:
+1. 로컬 사전 체크 (uncommitted 없음 / branch=main)
+2. `git push origin main`
+3. 홈서버 SSH → `git pull` → 변경 감지
+4. compose/prom/grafana/alertmanager 변경 시 `scripts/up.sh dev` 자동 실행
+5. `deploy/serverstate.conf` 변경 시 `/srv/nginx-proxy/conf.d/`에 복사 + `docker restart nginx_proxy`
+6. 헬스체크 (grafana/prometheus/alertmanager + targets)
+7. 외부 도메인 검증 (`https://serverstate.ghmate.com/api/health`)
+
+코드 변경 없이도 컨테이너만 재기동하고 싶으면 `bash scripts/deploy.sh --restart`.
+
+## 처음 한 번만 — 초기 셋업 (이미 완료된 상태)
+
+이 단계는 한 번만 하면 됨. 두 번 할 일 거의 없음. 기록 보존용.
+
+### 서버 컨벤션
+- 동적 프로젝트: `/srv/projects/<name>/` (이 프로젝트는 `/srv/projects/serverstate/`)
+- 글로벌 nginx: 컨테이너 `nginx_proxy`, 80/443 단일 진입점
+- 컨테이너 네이밍: `<project>_<service>_<env>` (예: `serverstate_grafana_prod`)
+- 호스트 포트 노출 금지 — 외부 통신은 `nginx_proxy` 네트워크(`external: true`) join
+- 자세한 컨벤션: `~/other/project/GHMATE_SERVER_GUIDE.md`
+
+### SSH
+```
 ssh -i ~/.ssh/ghmate_server -p 222 ghmate@ghmate.iptime.org
 ```
 
-## 배포 절차
-
-### 1) 사전 점검 (충돌 검사)
+### 최초 셋업 절차
 ```bash
-ssh -i ~/.ssh/ghmate_server -p 222 ghmate@ghmate.iptime.org \
-  'sudo ss -tlnp | grep -E ":(3000|9090|9093|9100|8080)\b" || echo "충돌 없음"; docker ps --format "table {{.Names}}\t{{.Ports}}"'
-```
-
-### 2) 코드 받기 (최초 한 번)
-```bash
+# 1) 코드 받기
 ssh -i ~/.ssh/ghmate_server -p 222 ghmate@ghmate.iptime.org \
   'mkdir -p /srv/projects/serverstate && cd /srv/projects/serverstate && git clone https://github.com/whrksp126/ServerState.git .'
-```
 
-### 3) `.env.dev` 작성 (서버에서)
-```bash
+# 2) .env.dev 작성 (서버에서 직접)
 ssh -i ~/.ssh/ghmate_server -p 222 ghmate@ghmate.iptime.org \
-  'cat > /srv/projects/serverstate/.env.dev <<EOF
-GRAFANA_ADMIN_USER=admin
-GRAFANA_ADMIN_PW=<강력한_비밀번호>
+  "cat > /srv/projects/serverstate/.env.dev <<EOF
+GRAFANA_ADMIN_USER=ghmate
+GRAFANA_ADMIN_PW=<강한_비밀번호>
 GRAFANA_ROOT_URL=https://serverstate.ghmate.com
 PROMETHEUS_RETENTION=15d
 EOF
-chmod 600 /srv/projects/serverstate/.env.dev'
-```
+chmod 600 /srv/projects/serverstate/.env.dev"
 
-### 4) 기동
-```bash
+# 3) 기동
 ssh -i ~/.ssh/ghmate_server -p 222 ghmate@ghmate.iptime.org \
   'cd /srv/projects/serverstate && bash scripts/up.sh dev'
-```
-> `scripts/up.sh dev`는 `docker-compose.yml + docker-compose.prod.yml` + `--profile linux` 자동 적용
-> = node-exporter 활성화, 호스트 포트 제거, nginx_proxy 네트워크 join, 컨테이너 네이밍 `_prod`
 
-### 5) nginx 라우팅 추가
-```bash
+# 4) nginx 라우팅
 ssh -i ~/.ssh/ghmate_server -p 222 ghmate@ghmate.iptime.org \
   'cp /srv/projects/serverstate/deploy/serverstate.conf /srv/nginx-proxy/conf.d/ && docker exec nginx_proxy nginx -t && docker restart nginx_proxy'
-```
-> ⚠️ `nginx -s reload`(graceful) 대신 **`docker restart nginx_proxy`** 사용. graceful reload는 새 server 블록 SSL 매칭이 active connection에서 안 잡혀 502가 발생할 수 있음 (실측).
->
-> ⚠️ Cloudflare가 Proxied 모드에서 origin에 HTTPS(443)로 연결하므로, conf에 `listen 443 ssl;` + `ssl_certificate /etc/nginx/certs/cloudflare_chain.crt;` + `ssl_certificate_key /etc/nginx/certs/cloudflare.key;`가 반드시 있어야 함. 80만 listen하면 default_server에 빨려들어가 502.
 
-### 6) Cloudflare DNS 등록 (사용자 직접)
-- Type: `CNAME`
-- Name: `serverstate`
-- Target: `ghmate.iptime.org`
-- Proxy: ON (Proxied)
-
-### 7) 검증
-```bash
-# 컨테이너 내부 헬스체크
-ssh -i ~/.ssh/ghmate_server -p 222 ghmate@ghmate.iptime.org \
-  'docker exec serverstate_grafana_prod wget -qO- http://localhost:3000/api/health'
-
-# nginx 경유 (ghmate.com 호스트 헤더로 시뮬레이션)
-ssh -i ~/.ssh/ghmate_server -p 222 ghmate@ghmate.iptime.org \
-  'curl -fsSL -H "Host: serverstate.ghmate.com" http://localhost/api/health'
-
-# 외부 도메인 (DNS 전파 후)
-curl -fsSL https://serverstate.ghmate.com/api/health
+# 5) Cloudflare DNS — 사용자 직접 (CNAME serverstate → ghmate.iptime.org, Proxied)
 ```
 
-## 업데이트 (이후 변경 사항 반영)
-```bash
-ssh -i ~/.ssh/ghmate_server -p 222 ghmate@ghmate.iptime.org \
-  'cd /srv/projects/serverstate && git pull && bash scripts/up.sh dev'
-```
-
-## 주의
-
-- **`.env.dev`는 서버에서 직접 작성**하고 git에 커밋하지 않는다 (`.gitignore`에 포함)
-- Grafana 비밀번호는 **첫 로그인 후 반드시 변경** (또는 `.env.dev`에 강력한 값으로 설정)
-- nginx conf 변경 후 `docker exec nginx_proxy nginx -t`로 문법 검사 후 reload
-- nginx_proxy 네트워크는 `external: true`로 참조만 함 (생성/삭제 금지)
+### ⚠️ 알아두어야 할 함정
+- **nginx 갱신은 `nginx -s reload`(graceful)가 아니라 `docker restart nginx_proxy`** — graceful은 새 server 블록의 SSL 매칭이 active connection에 안 잡혀 502 발생 (실측).
+- **Cloudflare가 origin에 HTTPS(443)로 연결**하므로 nginx conf에 `listen 443 ssl;` + `ssl_certificate /etc/nginx/certs/cloudflare_chain.crt;` + `ssl_certificate_key /etc/nginx/certs/cloudflare.key;`가 반드시 있어야 한다. 없으면 default_server에 빨려들어가 502.
+- **`.env.dev`는 서버에서만, gitignore**. 비번 변경은 UI 또는 `grafana cli admin reset-admin-password`로. username 변경은 SQLite 직접 (login 변경은 grafana CLI 미지원):
+  ```bash
+  docker exec --user root serverstate_grafana_prod apk add --no-cache sqlite
+  docker exec serverstate_grafana_prod sqlite3 /var/lib/grafana/grafana.db "UPDATE user SET login='새이름' WHERE id=1;"
+  ```

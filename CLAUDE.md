@@ -9,11 +9,26 @@
 
 ## 워크플로우 (불변)
 
-1. **로컬(맥북)**에서 `docker compose --env-file .env.local up -d`로 검증
-2. GitHub Public 저장소에 push
-3. **홈서버**에서 `git pull` → `.env.dev` 작성 → `docker compose --env-file .env.dev up -d`
-4. 홈서버 reverse proxy에 `serverstate.<도메인>` 라우팅 추가
-5. Cloudflare DNS에 CNAME 추가
+### 일상 개발 — 슬래시 커맨드 한 줄
+| 명령 | 동작 |
+|---|---|
+| `/local-up` | 로컬 맥북에 ServerState 기동 (`scripts/up.sh local`) |
+| `/local-down` | 로컬 중지 |
+| `/deploy` | uncommitted 체크 → push → 홈서버 pull/up/nginx 동기화 → 헬스체크 |
+| `/deploy --restart` | 코드 변경 없을 때도 컨테이너 강제 재기동 |
+| `/status` | 홈서버 컨테이너/타겟/알림/CPU·메모리·디스크·온도 한눈에 |
+| `/logs <svc> [N \| -f]` | 홈서버 컨테이너 로그 (예: `/logs grafana 200`, `/logs prometheus -f`) |
+
+### 흐름 요약
+1. 로컬에서 변경 → `/local-up`으로 검증 → http://localhost:3600 에서 확인
+2. `git commit`
+3. `/deploy` 한 줄로 홈서버 반영
+4. `/status`로 정상 동작 확인
+
+### 최초 1회만 (이미 완료)
+- 홈서버에 `/srv/projects/serverstate/` clone, `.env.dev` 작성
+- `/srv/nginx-proxy/conf.d/serverstate.conf` 배치, nginx_proxy 재시작
+- Cloudflare DNS CNAME `serverstate` → `ghmate.iptime.org`
 
 ## 절대 규칙
 
@@ -70,12 +85,26 @@
 - cadvisor의 `/var/run/docker.sock` 마운트를 read-write로 (보안)
 - 기존 서비스가 쓰는 호스트 포트와 겹치는 매핑
 
-## 자주 쓰는 명령
+## 자주 쓰는 명령 (셸에서 직접)
 
 ```bash
-bash scripts/up.sh local                # 로컬 기동
-bash scripts/down.sh local              # 로컬 중지
+# 로컬
+bash scripts/up.sh local
+bash scripts/down.sh local
 docker compose --env-file .env.local logs -f prometheus
+curl -X POST http://localhost:9090/-/reload     # 룰 리로드
+
+# 홈서버 자동화
+bash scripts/deploy.sh                          # 표준 배포
+bash scripts/deploy.sh --restart                # 강제 재기동
+bash scripts/status.sh                          # 상태
+bash scripts/logs.sh grafana 200                # 마지막 200줄
+bash scripts/logs.sh prometheus -f              # follow
+
+# 검증 (로컬에서 hooks가 자동 실행하지만 수동도 가능)
 docker run --rm --entrypoint promtool -v "$(pwd)/prometheus":/etc/prometheus prom/prometheus:v2.54.1 check config /etc/prometheus/prometheus.yml
-curl -X POST http://localhost:9090/-/reload   # 룰 리로드
+docker run --rm --entrypoint amtool -v "$(pwd)/alertmanager":/etc/alertmanager prom/alertmanager:v0.27.0 check-config /etc/alertmanager/alertmanager.yml
 ```
+
+## 슬래시 커맨드 (Claude Code 내부)
+`/deploy`, `/status`, `/logs <svc> [N|-f]`, `/local-up`, `/local-down` — 위 셸 명령을 한 줄로 트리거.

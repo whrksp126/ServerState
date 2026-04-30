@@ -57,17 +57,33 @@ PROMETHEUS_RETENTION=15d
 
 ## 실행
 
+### 로컬 (맥북에서 개발/검증)
 ```bash
-# 로컬
-bash scripts/up.sh local
-bash scripts/down.sh local
-
-# 홈서버
-bash scripts/up.sh dev
-bash scripts/down.sh dev
+bash scripts/up.sh local        # 기동 → http://localhost:3600
+bash scripts/down.sh local      # 중지
 ```
 
-`scripts/up.sh`는 `docker compose --env-file .env.<env> config` 검증 후 `up -d` 실행.
+### 배포 (로컬에서 한 줄로 홈서버까지)
+```bash
+bash scripts/deploy.sh          # uncommitted 체크 → push → 홈서버 pull/up/nginx 동기화 → 헬스체크
+bash scripts/deploy.sh --restart # 코드 변경 없을 때도 컨테이너 강제 재기동
+```
+
+### 홈서버 상태/로그 (로컬에서 SSH로)
+```bash
+bash scripts/status.sh                  # 컨테이너/타겟/알림/자원 한 줄 요약
+bash scripts/logs.sh grafana            # 마지막 50줄
+bash scripts/logs.sh grafana 200        # 마지막 200줄
+bash scripts/logs.sh prometheus -f      # follow (Ctrl+C로 종료)
+```
+
+### Claude Code 슬래시 커맨드 (위와 동일한 동작)
+| 명령 | 동작 |
+|---|---|
+| `/local-up`, `/local-down` | 로컬 기동/중지 |
+| `/deploy [--restart]` | 홈서버 배포 |
+| `/status` | 홈서버 상태 |
+| `/logs <svc> [N\|-f]` | 홈서버 로그 |
 
 ## 접속
 
@@ -136,8 +152,15 @@ ServerState/
 ├── grafana/provisioning/
 │   ├── datasources/prometheus.yml
 │   └── dashboards/             # JSON 대시보드 자동 등록
-├── scripts/up.sh, down.sh      # 인자 local | dev (dev면 prod override 자동 적용)
-├── .claude/                    # Claude Code 하네스 (skills, hooks)
+├── scripts/
+│   ├── up.sh, down.sh          # 인자 local | dev
+│   ├── deploy.sh               # 홈서버 자동 배포
+│   ├── status.sh               # 홈서버 상태
+│   └── logs.sh                 # 홈서버 컨테이너 로그
+├── .claude/
+│   ├── settings.json           # PostToolUse 훅 + 권한
+│   ├── commands/               # 슬래시 커맨드 (/deploy, /status, /logs, /local-up, /local-down)
+│   └── skills/                 # 자연어 트리거 작업 가이드
 └── README.md, CLAUDE.md
 ```
 

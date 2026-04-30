@@ -5,11 +5,25 @@
       "Bash(docker ps *)",
       "Bash(docker logs *)",
       "Bash(docker inspect *)",
+      "Bash(docker exec serverstate_*)",
+      "Bash(docker exec nginx_proxy *)",
+      "Bash(docker network inspect *)",
       "Bash(curl http://localhost:*)",
       "Bash(curl -fsSL http://localhost:*)",
+      "Bash(curl -fsSL https://serverstate.ghmate.com/*)",
       "Bash(curl -X POST http://localhost:*)",
       "Bash(bash scripts/up.sh *)",
-      "Bash(bash scripts/down.sh *)"
+      "Bash(bash scripts/down.sh *)",
+      "Bash(bash scripts/status.sh)",
+      "Bash(bash scripts/logs.sh *)",
+      "Bash(bash scripts/deploy.sh)",
+      "Bash(bash scripts/deploy.sh --restart)",
+      "Bash(ssh -i */.ssh/ghmate_server -p 222 ghmate@ghmate.iptime.org *)",
+      "Bash(git status*)",
+      "Bash(git diff*)",
+      "Bash(git log*)",
+      "Bash(git rev-parse*)",
+      "Bash(git push origin main)"
     ]
   },
   "hooks": {
@@ -19,7 +33,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash -c 'p=\"$CLAUDE_FILE_PATH\"; case \"$p\" in *docker-compose.yml) (cd \"$(dirname \"$p\")\" && docker compose config -q 2>&1) ;; *prometheus/prometheus.yml|*prometheus/rules/*.yml) docker run --rm --entrypoint promtool -v \"$(dirname \"$(dirname \"$p\")\")/prometheus\":/etc/prometheus prom/prometheus:v2.54.1 check config /etc/prometheus/prometheus.yml 2>&1 ;; *alertmanager/alertmanager.yml) docker run --rm --entrypoint amtool -v \"$(dirname \"$p\")\":/etc/alertmanager prom/alertmanager:v0.27.0 check-config /etc/alertmanager/alertmanager.yml 2>&1 ;; *) exit 0 ;; esac'"
+            "command": "bash -c 'p=\"$CLAUDE_FILE_PATH\"; case \"$p\" in *docker-compose.yml|*docker-compose.prod.yml) (cd \"$(dirname \"$p\")\" && docker compose -f \"$(basename \"$p\")\" config -q 2>&1 || true) ;; *prometheus/prometheus.yml|*prometheus/rules/*.yml) docker run --rm --entrypoint promtool -v \"$(dirname \"$(dirname \"$p\")\")/prometheus\":/etc/prometheus prom/prometheus:v2.54.1 check config /etc/prometheus/prometheus.yml 2>&1 ;; *alertmanager/alertmanager.yml) docker run --rm --entrypoint amtool -v \"$(dirname \"$p\")\":/etc/alertmanager prom/alertmanager:v0.27.0 check-config /etc/alertmanager/alertmanager.yml 2>&1 ;; *deploy/serverstate.conf) docker run --rm -v \"$(dirname \"$p\")\":/conf nginx:1.27-alpine sh -c \"cp /conf/serverstate.conf /etc/nginx/conf.d/serverstate.conf && nginx -t\" 2>&1 ;; *) exit 0 ;; esac'"
           }
         ]
       }
