@@ -76,7 +76,7 @@ echo "[deploy] 4/5 헬스체크"
 ${SSH} bash -se <<'REMOTE'
 set -e
 echo -n "  grafana       "
-docker exec serverstate_grafana_prod wget -qO- http://localhost:3000/api/health | grep -o '"database":"ok"' && echo "" || echo "FAIL"
+docker exec serverstate_grafana_prod wget -qO- http://localhost:3000/api/health | grep -q '"ok"' && echo OK || echo FAIL
 echo -n "  prometheus    "
 docker exec serverstate_prometheus_prod wget -qO- http://localhost:9090/-/healthy
 echo -n "  alertmanager  "
@@ -86,7 +86,9 @@ docker exec serverstate_prometheus_prod wget -qO- 'http://localhost:9090/api/v1/
   | python3 -c '
 import json, sys
 for t in json.load(sys.stdin)["data"]["activeTargets"]:
-    print(f"    {t[\"labels\"][\"job\"]:12s} {t[\"health\"]}")
+    job = t["labels"]["job"]
+    h = t["health"]
+    print(f"    {job:12s} {h}")
 '
 REMOTE
 

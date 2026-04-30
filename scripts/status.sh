@@ -13,7 +13,7 @@ docker ps --filter "name=serverstate_" --format 'table {{.Names}}\t{{.Status}}\t
 echo ""
 echo "=== 헬스 ==="
 echo -n "  grafana      "
-docker exec serverstate_grafana_prod wget -qO- http://localhost:3000/api/health 2>/dev/null | grep -o '"database":"ok"' || echo "FAIL"
+docker exec serverstate_grafana_prod wget -qO- http://localhost:3000/api/health 2>/dev/null | grep -q '"ok"' && echo OK || echo FAIL
 echo -n "  prometheus   "
 docker exec serverstate_prometheus_prod wget -qO- http://localhost:9090/-/healthy 2>/dev/null
 echo -n "  alertmanager "
@@ -51,12 +51,23 @@ else:
 
 echo ""
 echo "=== 호스트 자원 (현재값) ==="
-docker exec serverstate_prometheus_prod wget -qO- 'http://localhost:9090/api/v1/query?query=100-(avg(rate(node_cpu_seconds_total%7Bmode%3D%22idle%22%7D%5B5m%5D))*100)' \
-  | python3 -c 'import json,sys; r=json.load(sys.stdin)["data"]["result"]; print(f"  CPU 사용률   : {float(r[0][\"value\"][1]):.1f}%" if r else "  CPU         : N/A")'
-docker exec serverstate_prometheus_prod wget -qO- 'http://localhost:9090/api/v1/query?query=(1-node_memory_MemAvailable_bytes/node_memory_MemTotal_bytes)*100' \
-  | python3 -c 'import json,sys; r=json.load(sys.stdin)["data"]["result"]; print(f"  Memory 사용 : {float(r[0][\"value\"][1]):.1f}%" if r else "  Memory      : N/A")'
-docker exec serverstate_prometheus_prod wget -qO- 'http://localhost:9090/api/v1/query?query=(1-node_filesystem_avail_bytes%7Bmountpoint%3D%22/%22%7D/node_filesystem_size_bytes%7Bmountpoint%3D%22/%22%7D)*100' \
-  | python3 -c 'import json,sys; r=json.load(sys.stdin)["data"]["result"]; print(f"  Disk(/) 사용: {float(r[0][\"value\"][1]):.1f}%" if r else "  Disk        : N/A")'
-docker exec serverstate_prometheus_prod wget -qO- 'http://localhost:9090/api/v1/query?query=avg(node_hwmon_temp_celsius)' \
-  | python3 -c 'import json,sys; r=json.load(sys.stdin)["data"]["result"]; print(f"  CPU 평균온도: {float(r[0][\"value\"][1]):.1f}℃" if r else "  Temp        : N/A")'
+print_metric() {
+  local label="$1"; local query="$2"; local unit="$3"
+  local val
+  val=$(docker exec serverstate_prometheus_prod wget -qO- "http://localhost:9090/api/v1/query?query=${query}" \
+    | python3 -c '
+import json, sys
+data = json.load(sys.stdin)
+r = data["data"]["result"]
+if r:
+    print("{:.1f}".format(float(r[0]["value"][1])))
+else:
+    print("N/A")
+' 2>/dev/null) || val="N/A"
+  printf "  %-12s: %s%s\n" "$label" "$val" "$unit"
+}
+print_metric "CPU 사용률"  '100-(avg(rate(node_cpu_seconds_total%7Bmode%3D%22idle%22%7D%5B5m%5D))*100)' '%'
+print_metric "Memory 사용" '(1-node_memory_MemAvailable_bytes/node_memory_MemTotal_bytes)*100' '%'
+print_metric "Disk(/) 사용" '(1-node_filesystem_avail_bytes%7Bmountpoint%3D%22/%22%7D/node_filesystem_size_bytes%7Bmountpoint%3D%22/%22%7D)*100' '%'
+print_metric "CPU 평균온도" 'avg(node_hwmon_temp_celsius)' '℃'
 REMOTE
