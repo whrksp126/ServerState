@@ -1,0 +1,28 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(docker compose *)",
+      "Bash(docker ps *)",
+      "Bash(docker logs *)",
+      "Bash(docker inspect *)",
+      "Bash(curl http://localhost:*)",
+      "Bash(curl -fsSL http://localhost:*)",
+      "Bash(curl -X POST http://localhost:*)",
+      "Bash(bash scripts/up.sh *)",
+      "Bash(bash scripts/down.sh *)"
+    ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c 'p=\"$CLAUDE_FILE_PATH\"; case \"$p\" in *docker-compose.yml) (cd \"$(dirname \"$p\")\" && docker compose config -q 2>&1) ;; *prometheus/prometheus.yml|*prometheus/rules/*.yml) docker run --rm --entrypoint promtool -v \"$(dirname \"$(dirname \"$p\")\")/prometheus\":/etc/prometheus prom/prometheus:v2.54.1 check config /etc/prometheus/prometheus.yml 2>&1 ;; *alertmanager/alertmanager.yml) docker run --rm --entrypoint amtool -v \"$(dirname \"$p\")\":/etc/alertmanager prom/alertmanager:v0.27.0 check-config /etc/alertmanager/alertmanager.yml 2>&1 ;; *) exit 0 ;; esac'"
+          }
+        ]
+      }
+    ]
+  }
+}

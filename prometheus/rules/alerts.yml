@@ -1,0 +1,49 @@
+groups:
+  - name: host
+    rules:
+      - alert: HighCPU
+        expr: 100 - (avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "CPU usage high on {{ $labels.instance }}"
+          description: "CPU usage is {{ $value | printf \"%.1f\" }}% (>80%) for 5 minutes."
+
+      - alert: HighMemory
+        expr: (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 85
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Memory usage high on {{ $labels.instance }}"
+          description: "Memory usage is {{ $value | printf \"%.1f\" }}% (>85%) for 5 minutes."
+
+      - alert: HighDisk
+        expr: (1 - (node_filesystem_avail_bytes{fstype!~"tmpfs|overlay"} / node_filesystem_size_bytes{fstype!~"tmpfs|overlay"})) * 100 > 85
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Disk usage high on {{ $labels.instance }} ({{ $labels.mountpoint }})"
+          description: "Filesystem at {{ $labels.mountpoint }} is {{ $value | printf \"%.1f\" }}% full (>85%)."
+
+      - alert: HighCPUTemp
+        expr: node_hwmon_temp_celsius > 80
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "CPU temperature high on {{ $labels.instance }}"
+          description: "Sensor {{ $labels.chip }}/{{ $labels.sensor }} reads {{ $value }}℃ (>80℃) for 2 minutes."
+
+  - name: service
+    rules:
+      - alert: ServiceDown
+        expr: up == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Target down: {{ $labels.job }} ({{ $labels.instance }})"
+          description: "Prometheus scrape target has been down for 5 minutes."

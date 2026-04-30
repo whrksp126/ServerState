@@ -1,0 +1,18 @@
+# Environment files (per-host secrets/ports)
+.env
+.env.*
+!.env.example
+
+# Persistent data volumes (mounted from compose)
+data/
+*_data/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Local Claude harness state
+.claude/.state/

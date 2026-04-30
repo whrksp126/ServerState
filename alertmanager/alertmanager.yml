@@ -1,0 +1,15 @@
+global:
+  resolve_timeout: 5m
+
+# 현재는 receiver를 "null"로 두어 알림이 발사되어도 외부 전송하지 않음.
+# 추후 이메일/디스코드/슬랙 결정 후 receivers 항목 추가하고 route를 갱신하면 됨.
+
+route:
+  group_by: ["alertname", "instance"]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 12h
+  receiver: "null"
+
+receivers:
+  - name: "null"
