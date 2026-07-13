@@ -62,12 +62,19 @@ else
 fi
 
 # nginx conf 변경 감지
+# ⚠️ 공용 nginx_proxy 는 절대 restart 하지 않는다(깨진 conf 한 개로 전 서비스 다운).
+#    반드시 nginx -t 통과 시에만 reload. reload 는 실패해도 기존 설정으로 계속 돎(안전).
 if ! diff -q deploy/serverstate.conf /srv/nginx-proxy/conf.d/serverstate.conf >/dev/null 2>&1; then
   echo "  nginx conf 갱신..."
   cp deploy/serverstate.conf /srv/nginx-proxy/conf.d/serverstate.conf
-  docker exec nginx_proxy nginx -t >/dev/null 2>&1
-  docker restart nginx_proxy >/dev/null
-  echo "  ✓ nginx restart"
+  if docker exec nginx_proxy nginx -t >/dev/null 2>&1; then
+    docker exec nginx_proxy nginx -s reload >/dev/null
+    echo "  ✓ nginx reload"
+  else
+    echo "  ✗ nginx -t 실패 — reload 중단. 아래 원인 확인 후 수동 조치:"
+    docker exec nginx_proxy nginx -t
+    exit 1
+  fi
 fi
 REMOTE
 

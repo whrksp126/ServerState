@@ -2,6 +2,11 @@
 # - 가이드 GHMATE_SERVER_GUIDE.md 패턴: 호스트 포트 노출 안 함, nginx_proxy 네트워크 join
 # - 사용: docker compose -f docker-compose.yml -f docker-compose.prod.yml --profile linux --env-file .env.dev up -d
 # - scripts/up.sh dev 가 위 명령을 자동 실행
+#
+# 리소스 상한(deploy.resources.limits): 13GB/8코어 공용 홈서버에서 ServerState 한 스택이
+# 폭주해 옆 프로젝트를 OOM 으로 죽이지 않도록 각 서비스에 memory/cpu 상한을 건다.
+# (docker compose v2 는 swarm 없이도 up 시 deploy.resources.limits 를 적용한다.)
+# 상한은 홈서버(prod)에만 적용 — 로컬 맥북 개발은 base compose 라 제약 없음.
 
 services:
   prometheus:
@@ -9,6 +14,11 @@ services:
     ports: !reset []
     expose:
       - "9090"
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+          cpus: "1.0"
 
   grafana:
     container_name: serverstate_grafana_prod
@@ -18,22 +28,43 @@ services:
     networks:
       - monitor-net
       - nginx_proxy
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+          cpus: "0.5"
 
   node-exporter:
     container_name: serverstate_node_exporter_prod
     # host network 모드 그대로 (9100). 외부 노출 아님(공유기에 9100 포워딩 안 되어있어서 안전)
+    deploy:
+      resources:
+        limits:
+          memory: 128m
+          cpus: "0.5"
 
   cadvisor:
     container_name: serverstate_cadvisor_prod
     ports: !reset []
     expose:
       - "8080"
+    # cAdvisor 는 컨테이너 수/메트릭 증가 시 메모리를 크게 먹는 편 → 반드시 상한.
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+          cpus: "1.0"
 
   alertmanager:
     container_name: serverstate_alertmanager_prod
     ports: !reset []
     expose:
       - "9093"
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+          cpus: "0.5"
 
 networks:
   nginx_proxy:
